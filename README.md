@@ -8,6 +8,9 @@
 - Аккаунт на [Vercel](https://vercel.com)
 - API ключ Google Gemini из [AI Studio](https://aistudio.google.com/)
 
+## env
+Для использования необходимо установить внутренний ключ для доступа к прокси `PROXY_SECRET`, который нужно будет указывать в запросах к Vercel-Gemini.
+
 ## Пример использования (curl):
 
 ```curl -X POST "https://your-proxy.vercel.app/v1/chat/completions" \
