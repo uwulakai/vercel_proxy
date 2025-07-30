@@ -1,4 +1,6 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require("axios");
+const mime = require("mime-types");
 
 module.exports = async (req, res) => {
   try {
@@ -29,24 +31,55 @@ module.exports = async (req, res) => {
       model: model || "gemini-1.5-flash"
     });
 
-    // 5. Конвертация сообщений
-    const convertedMessages = messages.map(msg => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: (msg.content || []).map(part => {
+    // 5. Конвертация сообщений с поддержкой URL
+    const convertedMessages = await Promise.all(messages.map(async (msg) => {
+      const parts = await Promise.all((msg.content || []).map(async (part) => {
         if (part.type === 'text') {
           return { text: part.text || "" };
         }
+        
         if (part.type === 'image_url') {
-          const base64Data = (part.image_url?.url || "").split(',')[1] || "";
-          return {
-            inlineData: {
-              mimeType: "image/jpeg",
-              data: base64Data
-            }
-          };
+          const imageUrl = part.image_url?.url || "";
+          
+          // Если это base64
+          if (imageUrl.startsWith('data:')) {
+            const base64Data = imageUrl.split(',')[1] || "";
+            return {
+              inlineData: {
+                mimeType: imageUrl.split(';')[0].split(':')[1] || "image/jpeg",
+                data: base64Data
+              }
+            };
+          }
+          
+          // Если это URL
+          try {
+            const response = await axios.get(imageUrl, {
+              responseType: 'arraybuffer'
+            });
+            
+            const mimeType = response.headers['content-type'] || mime.lookup(imageUrl) || "image/jpeg";
+            const base64Data = Buffer.from(response.data, 'binary').toString('base64');
+            
+            return {
+              inlineData: {
+                mimeType,
+                data: base64Data
+              }
+            };
+          } catch (error) {
+            console.error(`Error fetching image from URL: ${imageUrl}`, error);
+            return { text: `[Image load error: ${imageUrl}]` };
+          }
         }
+        
         return { text: "" };
-      })
+      }));
+      
+      return {
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts
+      };
     }));
 
     // 6. Вызов API
@@ -82,6 +115,9 @@ module.exports = async (req, res) => {
     } else if (error.message.includes("INVALID_ARGUMENT")) {
       statusCode = 400;
       errorMessage = "Invalid request format";
+    } else if (error.message.includes("UNABLE_TO_FETCH_IMAGE")) {
+      statusCode = 400;
+      errorMessage = "Could not fetch image from URL";
     }
 
     res.status(statusCode).json({ error: errorMessage });
